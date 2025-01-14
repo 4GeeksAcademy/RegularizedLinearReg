@@ -1,74 +1,108 @@
 import pandas as pd
-from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from sklearn.feature_selection import SelectKBest, f_regression
-from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression, Lasso
 from sklearn.metrics import mean_squared_error, r2_score
-from sklearn.linear_model import Lasso
 
-total_data = pd.read_csv("https://raw.githubusercontent.com/4GeeksAcademy/regularized-linear-regression-project-tutorial/main/demographic_health_data.csv", sep = ",")
-print(total_data.head())
-total_data = total_data.drop_duplicates().reset_index(drop = True)
-print(total_data.head())
-data_types = total_data.dtypes
-numeric_columns = [c for c in list(data_types[data_types != "object"].index) if c != "Heart disease_number"]
+def main():
+    # Load data
+    total_data = pd.read_csv(
+        "https://raw.githubusercontent.com/4GeeksAcademy/regularized-linear-regression-project-tutorial/main/demographic_health_data.csv", sep=","
+    )
+    print("Initial Data Preview:")
+    print(total_data.head())
 
-scaler = StandardScaler()
-norm_features = scaler.fit_transform(total_data[numeric_columns])
+    # Drop duplicates
+    total_data = total_data.drop_duplicates().reset_index(drop=True)
+    print("\nData After Removing Duplicates:")
+    print(total_data.head())
 
-total_data_scal = pd.DataFrame(norm_features, index = total_data.index, columns = numeric_columns)
-total_data_scal["Heart disease_number"] = total_data["Heart disease_number"]
-print(total_data_scal.head())
+    # Identify numeric columns
+    numeric_columns = [
+        col for col in total_data.select_dtypes(include=["float64", "int64"]).columns if col != "Heart disease_number"
+    ]
+    print("\nNumeric Columns Identified:")
+    print(numeric_columns)
 
-X = total_data_scal.drop(columns=["Heart disease_number"])
-y = total_data_scal["Heart disease_number"]
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size = 0.2, random_state = 42)
-train_indices = list(X_train.index)
-test_indices = list(X_test.index)
+    # Split data into train and test sets
+    X = total_data[numeric_columns]
+    y = total_data["Heart disease_number"]
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-k = int(len(X_train.columns) * 0.3)
-selection_model = SelectKBest(score_func = f_regression, k = k)
-selection_model.fit(X_train, y_train)
-ix = selection_model.get_support()
+    print("\nTraining and Testing Sets Created:")
+    print(f"Training Set Size: {len(X_train)}, Testing Set Size: {len(X_test)}")
 
-X_train_sel = pd.DataFrame(selection_model.transform(X_train), columns = X_train.columns.values[ix])
-X_test_sel = pd.DataFrame(selection_model.transform(X_test), columns = X_test.columns.values[ix])
+    # Scale data after split
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
 
-print(X_train_sel.head())
-print(X_test_sel.head())
+    # Convert back to DataFrame for compatibility
+    X_train = pd.DataFrame(X_train_scaled, columns=X_train.columns, index=X_train.index)
+    X_test = pd.DataFrame(X_test_scaled, columns=X_test.columns, index=X_test.index)
 
-X_train_sel["Heart disease_number"] = list(y_train)
-X_test_sel["Heart disease_number"] = list(y_test)
+    print("\nData After Scaling:")
+    print("Scaled Training Data (First 5 Rows):")
+    print(X_train.head())
 
-X_train_sel.to_csv("clean_train.csv", index = False)
-X_test_sel.to_csv("clean_test.csv", index = False)
+    # Feature selection using SelectKBest
+    k = int(len(X_train.columns) * 0.3)  # Selecting top 30% features
+    selection_model = SelectKBest(score_func=f_regression, k=k)
+    X_train_sel = selection_model.fit_transform(X_train, y_train)
+    X_test_sel = selection_model.transform(X_test)
 
-total_data = pd.concat([X_train_sel, X_test_sel])
-print(total_data.head())
-print(X_test_sel.head())
+    # Retrieve selected feature names
+    selected_features = X_train.columns[selection_model.get_support()]
+    X_train_sel = pd.DataFrame(X_train_sel, columns=selected_features, index=X_train.index)
+    X_test_sel = pd.DataFrame(X_test_sel, columns=selected_features, index=X_test.index)
 
-train_data = pd.read_csv("clean_train.csv")
-test_data = pd.read_csv("clean_test.csv")
+    print("\nSelected Features (Top 30%):")
+    print(selected_features)
 
-print(train_data.head())
+    # Add target back to selected features
+    X_train_sel["Heart disease_number"] = y_train.values
+    X_test_sel["Heart disease_number"] = y_test.values
 
-X_train = train_data.drop(["Heart disease_number"], axis = 1)
-y_train = train_data["Heart disease_number"]
-X_test = test_data.drop(["Heart disease_number"], axis = 1)
-y_test = test_data["Heart disease_number"]
+    # Save clean data
+    X_train_sel.to_csv("clean_train.csv", index=False)
+    X_test_sel.to_csv("clean_test.csv", index=False)
 
-model = LogisticRegression()
-print(model.fit(X_train, y_train))
-print(f"Intercep (a): {model.intercept_}")
-print(f"Coefficients: {model.coef_}")
-y_pred = model.predict(X_test)
-print(y_pred)
-print(f"MSE: {mean_squared_error(y_test, y_pred)}")
-print(f"R2 Score: {r2_score(y_test, y_pred)}")
+    print("\nClean Data Saved as CSV:")
+    print("Clean Training Data (First 5 Rows):")
+    print(X_train_sel.head())
+    print("\nClean Testing Data (First 5 Rows):")
+    print(X_test_sel.head())
 
-alpha = 1.0
-lasso_model = Lasso(alpha = alpha)
-lasso_model.fit(X_train, y_train)
-score = lasso_model.score(X_test, y_test)
-print("Coefficients:", lasso_model.coef_)
-print("R2 score:", score)
+    # Reload cleaned datasets
+    train_data = pd.read_csv("clean_train.csv")
+    test_data = pd.read_csv("clean_test.csv")
+
+    # Split into features and target
+    X_train = train_data.drop(columns=["Heart disease_number"])
+    y_train = train_data["Heart disease_number"]
+    X_test = test_data.drop(columns=["Heart disease_number"])
+    y_test = test_data["Heart disease_number"]
+
+    # Logistic Regression
+    logistic_model = LogisticRegression(max_iter=1000)
+    logistic_model.fit(X_train, y_train)
+
+    print("\nLogistic Regression Results:")
+    print(f"Intercept: {logistic_model.intercept_[0]}")
+    print(f"Coefficients: {logistic_model.coef_}")
+    y_pred = logistic_model.predict(X_test)
+    print(f"Predicted Values (First 10): {y_pred[:10]}")
+    print(f"MSE: {mean_squared_error(y_test, y_pred):.4f}")
+    print(f"R2 Score: {r2_score(y_test, y_pred):.4f}")
+
+    # Lasso Regression
+    lasso_model = Lasso(alpha=1.0, max_iter=10000)
+    lasso_model.fit(X_train, y_train)
+
+    print("\nLasso Regression Results:")
+    print(f"Coefficients: {lasso_model.coef_}")
+    print(f"R2 Score: {lasso_model.score(X_test, y_test):.4f}")
+
+if __name__ == "__main__":
+    main()
